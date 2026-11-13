@@ -29,7 +29,7 @@ h1{margin:0 0 8px;color:#e33}p{margin:8px 0 4px}
 <button onclick="startGame()">SPIEL STARTEN</button>
 </div>
 <div id="mj" style="display:none">
-<p>Raum-Code vom Host eingeben:</p><input id="jc" maxlength="4" style="font:28px monospace;width:5em;text-transform:uppercase"> <button onclick="joinCode()">Verbinden</button><p id="js2"></p>
+<p>Raum-Code vom Host eingeben:</p><input id="jc" maxlength="12" style="font:28px monospace;width:5em;text-transform:uppercase"> <button onclick="joinCode()">Verbinden</button><p id="js2"></p>
 <details><summary>Ohne Internet: manuelle Codes</summary><p>1) Code vom Host einfügen:</p><textarea id="ic"></textarea>
 <button onclick="join()">Antwort-Code erzeugen</button>
 <p>2) Diesen Antwort-Code an den Host schicken:</p><textarea id="oc2" readonly></textarea>
@@ -172,7 +172,7 @@ async function invite(){
  c.onclose=()=>{players[slot].on=false;chs[slot]=null;ul()};
  await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);$('oc').value=enc(pc.localDescription);
 }
-async function accept(){try{await pend.pc.setRemoteDescription(dec($('ia').value));$('ia').value=''}catch(e){alert('Ungültiger Code')}}
+async function accept(){try{await pend.pc.setRemoteDescription(dec($('ia').value));$('ia').value=''}catch(e){alert('Fehler: '+e.message)}}
 async function join(){
  try{
   const pc=new RTCPeerConnection(cfg);
@@ -182,14 +182,14 @@ async function join(){
    else if(m.t=='s')S=m};ch.onclose=()=>lost=1};
   await pc.setRemoteDescription(dec($('ic').value));await pc.setLocalDescription(await pc.createAnswer());await waitIce(pc);
   $('oc2').value=enc(pc.localDescription);
- }catch(e){alert('Ungültiger Code')}
+ }catch(e){alert('Fehler: '+e.message)}
 }
 function mkPeer(){
  if(typeof Peer=='undefined'){$('hc').textContent='(offline)';return}
  const A='ABCDEFGHJKLMNPQRSTUVWXYZ',code=[0,1,2,3].map(()=>A[Math.random()*A.length|0]).join('');
  const pr=new Peer('HFL-'+code);
  pr.on('open',()=>{hostCode=code;$('hc').textContent=code});
- pr.on('connection',hostConn);
+ pr.on('connection',hostConn);pr.on('disconnected',()=>{$('hc').textContent='...';pr.reconnect()});
  pr.on('error',e=>{if(e.type=='unavailable-id')mkPeer();else $('hc').textContent='Fehler: '+e.type});
 }
 function hostConn(c){
@@ -205,15 +205,23 @@ function onNet(m){
   setInterval(()=>{if(ch.open)ch.send(JSON.stringify({x:me.x,y:me.y,a:me.a,f:me.f,w:me.w,c:me.rc},rnd))},33)}
  else if(m.t=='s')S=m;else if(m.t=='full')$('js2').textContent='Spiel ist voll';
 }
-function joinCode(){
- const code=$('jc').value.trim().toUpperCase();
- if(typeof Peer=='undefined'){$('js2').textContent='Kein Internet - nutze die manuellen Codes';return}
- $('js2').textContent='Verbinde...';
+function joinCode(tries){
+ tries=tries||0;
+ const raw=$('jc').value.toUpperCase().replace(/[^A-Z]/g,''),code=raw.slice(-4),st=$('js2');
+ if(raw.length<4){st.textContent='Bitte den 4-stelligen Raum-Code eingeben';return}
+ if(typeof Peer=='undefined'){st.textContent='Bibliothek nicht geladen (kein Internet?) - nutze die manuellen Codes';return}
+ st.textContent='Verbinde mit Raum '+code+'...';
  const pr=new Peer();
  pr.on('open',()=>{const c=pr.connect('HFL-'+code,{reliable:true});ch=c;
+  c.on('open',()=>{st.textContent='Verbunden, warte auf Start...'});
   c.on('data',d=>onNet(JSON.parse(d)));c.on('close',()=>{if(mode)lost=1});
-  setTimeout(()=>{if(!c.open&&!mode)$('js2').textContent='Keine Verbindung - Code prüfen'},8000)});
- pr.on('error',e=>{$('js2').textContent=e.type=='peer-unavailable'?'Code nicht gefunden':'Fehler: '+e.type});
+  c.on('error',e=>{st.textContent='Verbindungsfehler: '+e.type});
+  setTimeout(()=>{if(!c.open&&!mode)st.textContent='Raum gefunden, aber noch keine Datenverbindung (Firewall/Netz?). Es wird weiter versucht...'},10000)});
+ pr.on('error',e=>{
+  if(e.type=='peer-unavailable'){
+   if(tries<3){st.textContent='Raum '+code+' nicht gefunden, neuer Versuch...';pr.destroy();setTimeout(()=>joinCode(tries+1),2000)}
+   else st.textContent='Raum '+code+' nicht gefunden. Der Host muss zuerst auf "Host / Solo" geklickt haben und seinen Code sehen. Code und Internet bei beiden prüfen.'}
+  else st.textContent='Fehler: '+e.type+' '+(e.message||'')});
 }
 function startGame(){loadMap(+$('mp').value);mode=1;$('m').style.display='none';cv.requestPointerLock()}
 // ---------- Eingabe ----------
